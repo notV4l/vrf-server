@@ -9,9 +9,6 @@ pub mod vrf_consumer {
 }
 
 
-// #[cfg(test)]
-// mod tests {
-//     #[test]
-//     fn it_probably_not_works() {
-//     }
-// }
+#[cfg(test)]
+mod tests;
+

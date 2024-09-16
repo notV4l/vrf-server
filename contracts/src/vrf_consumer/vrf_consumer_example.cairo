@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: MIT
 // Compatible with OpenZeppelin Contracts for Cairo ^0.16.0
 
+#[derive(Drop, Copy, Clone, Serde)]
+pub struct PredictParams {
+    value: u32,
+}
+
+#[starknet::interface]
+trait IVrfConsumerExample<TContractState> {
+    fn predict(ref self: TContractState, params: PredictParams);
+    fn get_score(self: @TContractState, player: starknet::ContractAddress) -> u32;
+}
+
+
 #[starknet::contract]
 mod VrfConsumer {
     use starknet::{ClassHash, ContractAddress, get_caller_address};
@@ -13,6 +25,8 @@ mod VrfConsumer {
     use stark_vrf::ecvrf::{Point, Proof, ECVRF, ECVRFImpl};
 
     use vrf_contracts::vrf_consumer::vrf_consumer_component::{VrfConsumerComponent, RequestStatus};
+
+    use super::PredictParams;
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
     component!(path: VrfConsumerComponent, storage: vrf_consumer, event: VrfConsumerEvent);
@@ -49,13 +63,9 @@ mod VrfConsumer {
         self.vrf_consumer.initializer(vrf_provider);
     }
 
-    #[derive(Drop, Copy, Clone, Serde)]
-    pub struct PredictParams {
-        value: bool,
-    }
 
-    #[generate_trait]
-    impl ConsumerImpl of IConsumer {
+    #[abi(embed_v0)]
+    impl ConsumerImpl of super::IVrfConsumerExample<ContractState> {
         // fn request_random(
         //     ref self: ComponentState<TContractState>,
         //     consumer: ContractAddress,
@@ -64,7 +74,6 @@ mod VrfConsumer {
         //     nonce: felt252
         // ) 
 
-        #[abi(embed_v0)]
         fn predict(ref self: ContractState, params: PredictParams) {
             // check if call match with commit
             let seed = self.vrf_consumer.assert_call_match_commit('predict', params);
@@ -72,17 +81,17 @@ mod VrfConsumer {
             let random = self.vrf_consumer.assert_fulfilled_and_consume(seed);
 
             let random: u256 = random.into();
-            let value = if (random % 2) == 1 {
-                true
-            } else {
-                false
-            };
+            let value: u32 = (random % 10).try_into().unwrap();
 
             if params.value == value {
                 let caller = get_caller_address();
                 let score = self.scores.read(caller);
                 self.scores.write(caller, score + 1);
             }
+        }
+
+        fn get_score(self: @ContractState, player: ContractAddress) -> u32 {
+            self.scores.read(player)
         }
     }
 

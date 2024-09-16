@@ -15,10 +15,11 @@ trait IVrfProvider<TContractState> {
 
     fn consume_random(ref self: TContractState, caller: ContractAddress, seed: felt252) -> felt252;
 
+    fn get_random(self: @TContractState, seed: felt252) -> felt252;
+
     fn get_nonce(
         self: @TContractState, consumer: ContractAddress, caller: ContractAddress,
     ) -> felt252;
-
 
     fn get_seed_for_call(
         self: @TContractState,
@@ -221,9 +222,10 @@ pub mod VrfProviderComponent {
             let pubkey: Point = self.get_public_key().into();
             let ecvrf = ECVRFImpl::new(pubkey);
 
-            let hash = ecvrf.verify(proof.clone(), array![seed.clone()].span()).unwrap();
+            let random = ecvrf.verify(proof.clone(), array![seed.clone()].span()).unwrap();
+
             // write random
-            self.VrfProvider_request_random.write(seed, hash);
+            self.VrfProvider_request_random.write(seed, random);
             // update request status
             self.VrfProvider_request_status.write(seed, RequestStatus::Fulfilled);
 
@@ -270,6 +272,11 @@ pub mod VrfProviderComponent {
             let random = self.VrfProvider_request_random.read(seed);
 
             random
+        }
+
+        // remove ?
+        fn get_random(self: @ComponentState<TContractState>, seed: felt252) -> felt252 {
+            self.VrfProvider_request_random.read(seed)
         }
 
         fn get_public_key(self: @ComponentState<TContractState>) -> PublicKey {

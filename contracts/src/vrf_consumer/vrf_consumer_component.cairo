@@ -9,7 +9,6 @@ trait IVrfConsumer<TContractState> {
     fn set_vrf_provider(ref self: TContractState, vrf_provider: ContractAddress);
 
     fn get_vrf_provider_public_key(self: @TContractState) -> PublicKey;
-
 }
 
 
