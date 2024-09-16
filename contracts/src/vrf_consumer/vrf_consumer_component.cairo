@@ -10,14 +10,6 @@ trait IVrfConsumer<TContractState> {
 
     fn get_vrf_provider_public_key(self: @TContractState) -> PublicKey;
 
-    fn get_status(self: @TContractState, seed: felt252) -> RequestStatus;
-    fn get_random(self: @TContractState, seed: felt252) -> felt252;
-}
-
-
-#[starknet::interface]
-trait IVrfConsumerRequest<TContractState> {
-    fn request_random(ref self: TContractState, seed: felt252);
 }
 
 
@@ -43,10 +35,6 @@ pub mod VrfConsumerComponent {
     #[storage]
     struct Storage {
         VrfConsumer_vrf_provider: ContractAddress,
-        // (contract_address, caller_address) -> nonce
-        VrfConsumer_nonces: Map<(ContractAddress, ContractAddress), felt252>,
-        // (contract_address, caller_address) -> seed
-        VrfConsumer_commit: Map<(ContractAddress, ContractAddress), felt252>,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -62,6 +50,8 @@ pub mod VrfConsumerComponent {
 
     pub mod Errors {
         pub const ADDRESS_ZERO: felt252 = 'VrfConsumer: address is zero';
+        pub const COMMIT_MISMATCH: felt252 = 'VrfConsumer: commit mismatch';
+        pub const REQUEST_NOT_FULFILLED: felt252 = 'VrfConsumer: not fulfilled';
     }
 
     #[embeddable_as(VrfConsumerImpl)]
@@ -89,14 +79,6 @@ pub mod VrfConsumerComponent {
                 .get_public_key()
         }
 
-        fn get_status(self: @ComponentState<TContractState>, seed: felt252) -> RequestStatus {
-            IVrfProviderDispatcher { contract_address: self.VrfConsumer_vrf_provider.read() }
-                .get_status(seed)
-        }
-        fn get_random(self: @ComponentState<TContractState>, seed: felt252) -> felt252 {
-            IVrfProviderDispatcher { contract_address: self.VrfConsumer_vrf_provider.read() }
-                .get_random(seed)
-        }
     }
 
     #[generate_trait]
@@ -107,57 +89,54 @@ pub mod VrfConsumerComponent {
             self._set_vrf_provider(vrf_provider);
         }
 
-        fn request_random(ref self: ComponentState<TContractState>, seed: felt252,) {
-            let vrf_provider = self.VrfConsumer_vrf_provider.read();
-            IVrfProviderDispatcher { contract_address: vrf_provider }.request_random(seed);
+        fn vrf_provider_disp(self: @ComponentState<TContractState>,) -> IVrfProviderDispatcher {
+            IVrfProviderDispatcher { contract_address: self.VrfConsumer_vrf_provider.read() }
         }
 
-        fn get_unique_seed<T, +Drop<T>, +Serde<T>>(
-            self: @ComponentState<TContractState>, salt: felt252, params: T
+        fn get_seed_for_call(
+            self: @ComponentState<TContractState>, entrypoint: felt252, calldata: Array<felt252>
         ) -> felt252 {
-            let contract = get_contract_address();
             let caller = get_caller_address();
-            let nonce = self.VrfConsumer_nonces.read((contract, caller));
-
-            let mut arr: Array<felt252> = array![contract.into(), caller.into(), nonce, salt];
-            params.serialize(ref arr);
-
-            core::poseidon::poseidon_hash_span(arr.span())
+            self.vrf_provider_disp().get_seed_for_call(caller, entrypoint, calldata)
         }
 
-        fn commit(ref self: ComponentState<TContractState>, seed: felt252) {
-            let contract = get_contract_address();
+        fn get_commit(self: @ComponentState<TContractState>,) -> felt252 {
+            let consumer = get_contract_address();
             let caller = get_caller_address();
 
-            self.VrfConsumer_commit.write((contract, caller), seed);
+            self.vrf_provider_disp().get_commit(consumer, caller)
         }
 
-        fn get_commit(ref self: ComponentState<TContractState>) -> felt252 {
-            let contract = get_contract_address();
+        fn assert_call_match_commit<T, +Drop<T>, +Serde<T>>(
+            self: @ComponentState<TContractState>, entrypoint: felt252, calldata: T
+        ) -> felt252 {
+            let mut serialized = array![];
+            calldata.serialize(ref serialized);
+
+            // get seed for call
+            let seed = self.get_seed_for_call('predict', serialized);
+
+            // get committed seed
+            let committed = self.get_commit();
+
+            assert(seed == committed, Errors::COMMIT_MISMATCH);
+
+            seed
+        }
+
+        fn assert_fulfilled_and_consume(
+            self: @ComponentState<TContractState>, seed: felt252
+        ) -> felt252 {
             let caller = get_caller_address();
 
-            self.VrfConsumer_commit.read((contract, caller))
+            let status = self.vrf_provider_disp().get_status(seed);
+            assert(status == RequestStatus::Fulfilled, Errors::REQUEST_NOT_FULFILLED);
+
+            // consume random & uncommit caller
+            let random = self.vrf_provider_disp().consume_random(caller, seed);
+
+            random
         }
-
-        fn clear_commit(ref self: ComponentState<TContractState>) {
-            let contract = get_contract_address();
-            let caller = get_caller_address();
-
-            if (self.VrfConsumer_commit.read((contract, caller)) != 0) {
-                self.VrfConsumer_commit.write((contract, caller), 0);
-            }
-        }
-
-
-        fn increment_nonce(ref self: ComponentState<TContractState>) {
-            let contract = get_contract_address();
-            let caller = get_caller_address();
-
-            let nonce = self.VrfConsumer_nonces.read((contract, caller));
-
-            self.VrfConsumer_nonces.write((contract, caller), nonce + 1)
-        }
-
 
         fn _set_vrf_provider(
             ref self: ComponentState<TContractState>, new_vrf_provider: ContractAddress

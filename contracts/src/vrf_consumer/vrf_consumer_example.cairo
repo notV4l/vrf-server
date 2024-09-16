@@ -56,49 +56,21 @@ mod VrfConsumer {
 
     #[generate_trait]
     impl ConsumerImpl of IConsumer {
+        // fn request_random(
+        //     ref self: ComponentState<TContractState>,
+        //     consumer: ContractAddress,
+        //     entrypoint: felt252,
+        //     calldata: Array<felt252>,
+        //     nonce: felt252
+        // ) 
+
         #[abi(embed_v0)]
-        // return 0 = executed
-        // return seed = committed & random requested
-        fn predict(ref self: ContractState, params: PredictParams) -> felt252 {
-            // get unique seed
-            let seed = self.vrf_consumer.get_unique_seed('predict', params);
+        fn predict(ref self: ContractState, params: PredictParams) {
+            // check if call match with commit
+            let seed = self.vrf_consumer.assert_call_match_commit('predict', params);
+            // retrieve random & clear commit
+            let random = self.vrf_consumer.assert_fulfilled_and_consume(seed);
 
-            // check not committed or seed = commit
-            let commit = self.vrf_consumer.get_commit();
-            assert(commit == 0 || commit == seed, 'commit mismatch');
-
-            match self.vrf_consumer.get_status(seed) {
-                RequestStatus::None => {
-                    self.vrf_consumer.commit(seed);
-                    self.vrf_consumer.request_random(seed);
-                    seed
-                },
-                RequestStatus::Received => {
-                    panic!("waiting for vrf"); 
-                    seed
-                },
-                RequestStatus::Fulfilled => {
-                    // get random
-                    let random = self.vrf_consumer.get_random(seed);
-
-                    // do stuff with random
-                    self.execute_predict(params, random);
-
-                    // increment nonce
-                    self.vrf_consumer.increment_nonce();
-
-                    // clear commit
-                    self.vrf_consumer.clear_commit();
-
-                    0
-                },
-            }
-        }
-    }
-
-    #[generate_trait]
-    impl ConsumerInternal of InternalTrait {
-        fn execute_predict(ref self: ContractState, params: PredictParams, random: felt252) {
             let random: u256 = random.into();
             let value = if (random % 2) == 1 {
                 true
@@ -113,4 +85,7 @@ mod VrfConsumer {
             }
         }
     }
+
+    #[generate_trait]
+    impl ConsumerInternal of InternalTrait {}
 }
