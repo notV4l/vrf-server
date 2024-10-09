@@ -14,16 +14,16 @@ use vrf_contracts::vrf_provider::vrf_provider_component::{
 };
 
 use vrf_contracts::vrf_consumer::vrf_consumer_example::{
-    VrfConsumer, IVrfConsumerExampleFull, IVrfConsumerExampleFullDispatcher,
-    IVrfConsumerExampleFullDispatcherTrait
+    VrfConsumer, IVrfConsumerExample, IVrfConsumerExampleDispatcher,
+    IVrfConsumerExampleDispatcherTrait
 };
 
 pub fn PROVIDER() -> ContractAddress {
     contract_address_const::<'PROVIDER'>()
 }
 
-pub fn CONSUMER() -> ContractAddress {
-    contract_address_const::<'CONSUMER'>()
+pub fn CONSUMER1() -> ContractAddress {
+    contract_address_const::<'CONSUMER1'>()
 }
 
 pub fn CONSUMER2() -> ContractAddress {
@@ -34,8 +34,8 @@ pub fn CONSUMER2() -> ContractAddress {
 #[derive(Drop, Copy, Clone)]
 pub struct SetupResult {
     provider: IVrfProviderDispatcher,
-    consumer: IVrfConsumerExampleFullDispatcher,
-    // consumer2: IVrfConsumerExampleDispatcher,
+    consumer1: IVrfConsumerExampleDispatcher,
+    consumer2: IVrfConsumerExampleDispatcher,
 }
 
 // lauch vrf-server : cargo run -r -- -s 420
@@ -58,13 +58,13 @@ pub fn setup() -> SetupResult {
     let mut consumer_calldata = array![];
     consumer_calldata.append_serde(PROVIDER());
 
-    utils::declare_and_deploy_at("VrfConsumer", CONSUMER(), consumer_calldata.clone());
-    // utils::declare_and_deploy_at("VrfConsumer", CONSUMER2(), consumer_calldata);
+    utils::declare_and_deploy_at("VrfConsumer", CONSUMER1(), consumer_calldata.clone());
+    utils::deploy_another_at(CONSUMER1(), CONSUMER2(), consumer_calldata);
 
     SetupResult {
         provider: IVrfProviderDispatcher { contract_address: PROVIDER() },
-        consumer: IVrfConsumerExampleFullDispatcher { contract_address: CONSUMER() },
-        // consumer2: IVrfConsumerExampleDispatcher { contract_address: CONSUMER2() },
+        consumer1: IVrfConsumerExampleDispatcher { contract_address: CONSUMER1() },
+        consumer2: IVrfConsumerExampleDispatcher { contract_address: CONSUMER2() },
     }
 }
 
@@ -73,36 +73,4 @@ pub fn submit_random_no_proof(provider: IVrfProviderDispatcher, seed: felt252, r
     start_cheat_caller_address(provider.contract_address, AUTHORIZED());
     provider.submit_random_no_proof(seed, rand);
     stop_cheat_caller_address(provider.contract_address);
-}
-
-// predict(7)
-// dec seed: 607585265598880350269282576347946563989976446860791137567692418838919592956
-// hex seed: 157E18E0AD1D332DBDE4FB45EC4217D18C2F173E319C265D3B855732AB33BFC
-
-// MUST give seed as hex string
-// curl -d '{"seed":["0x157E18E0AD1D332DBDE4FB45EC4217D18C2F173E319C265D3B855732AB33BFC"]}' -H "Content-Type: application/json" http://localhost:3000/stark_vrf {
-    // {
-    //     "result": {
-    //       "gamma_x": "0x3837ccc52fe0b144283639352c4dc3844c36807872b2a26b3150d05eea97253",
-    //       "gamma_y": "0x5cac1899a943a983c27e04b6070276626fbaa7c7f1a80dcd37354e1f8745c50",
-    //       "c": "0x6087428da46028cd8c5db5b079ace75231356cb1deb8c5732f5dceedd79cb58",
-    //       "s": "0x783fdaa82650f20b9282a57ee6da96ebd9ab2c2319a03c063dc79a4593f5086",
-    //       "sqrt_ratio": "0xe3e8f4efbfb55a8d9c6e39f299bcf15c07bfe8d7e9e53cbc06c6f4a2b4d18a",
-    //       "rnd": "0xf21be835daefd29c6a9d66fd0194ca058c4d12b0fdd77c0596601c5f5c338a"
-    //     }
-    //   }
-
-fn proof_predict_7() -> (Proof, felt252) {
-    (
-        Proof {
-            gamma: Point {
-                x: 0x3837ccc52fe0b144283639352c4dc3844c36807872b2a26b3150d05eea97253,
-                y: 0x5cac1899a943a983c27e04b6070276626fbaa7c7f1a80dcd37354e1f8745c50
-            },
-            c: 0x6087428da46028cd8c5db5b079ace75231356cb1deb8c5732f5dceedd79cb58,
-            s: 0x783fdaa82650f20b9282a57ee6da96ebd9ab2c2319a03c063dc79a4593f5086,
-            sqrt_ratio_hint: 0xe3e8f4efbfb55a8d9c6e39f299bcf15c07bfe8d7e9e53cbc06c6f4a2b4d18a,
-        },
-        0xf21be835daefd29c6a9d66fd0194ca058c4d12b0fdd77c0596601c5f5c338a
-    )
 }

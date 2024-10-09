@@ -17,7 +17,7 @@ use cainome_cairo_serde::CairoSerde;
 use clap::Parser;
 use http_body_util::BodyExt;
 use hyper::{header::CONTENT_TYPE, StatusCode, Uri};
-use katana_primitives::{block::BlockTag, chain::ChainId, felt, transaction::InvokeTx, Felt};
+use katana_primitives::{chain::ChainId, transaction::InvokeTx, Felt};
 use katana_rpc_types::transaction::{BroadcastedInvokeTx, BroadcastedTx};
 use num::{BigInt, Num};
 use serde_json::Value;
@@ -25,12 +25,10 @@ use stark_vrf::{generate_public_key, BaseField, StarkVRF};
 use starknet::{
     accounts::Account,
     core::types::{
-        BlockId, BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1,
-        BroadcastedInvokeTransactionV3, BroadcastedTransaction, SimulatedTransaction,
-        SimulationFlag,
+        BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1,
+        BroadcastedInvokeTransactionV3,
     },
     macros::{selector, short_string},
-    providers::Provider,
 };
 use std::{str::FromStr, time::Duration};
 use tokio::time::sleep;
@@ -87,21 +85,15 @@ pub async fn proxy_handler(
                                 get_request_random_calls(invoke, args.vrf_provider_address);
 
                             if !request_random_calls.is_empty() {
+                                let seed = request_random_calls[0].calldata[0];
+
                                 let submit_random_call =
-                                    build_submit_random_call_from_request_random(
-                                        &request_random_calls[0],
-                                        args.clone(),
-                                    );
+                                    build_submit_random_call(seed, args.clone());
+                                let assert_consumed_call = build_assert_consumed_call(seed, args.clone());
 
                                 let mut calls = get_calls(invoke);
-                                calls.insert(
-                                    0,
-                                    Call {
-                                        to: submit_random_call.to,
-                                        selector: submit_random_call.selector,
-                                        calldata: submit_random_call.calldata,
-                                    },
-                                );
+                                calls.insert(0, submit_random_call);
+                                calls.push(assert_consumed_call);
 
                                 let calldata: Vec<Felt> =
                                     Vec::<proxy::types::Call>::cairo_serialize(&calls);
@@ -139,18 +131,44 @@ pub async fn proxy_handler(
                             get_request_random_calls(invoke, args.vrf_provider_address);
 
                         if !request_random_calls.is_empty() {
-                            let submit_random_call = build_submit_random_call_from_request_random(
-                                &request_random_calls[0],
-                                args.clone(),
-                            );
+                            let seed = request_random_calls[0].calldata[0];
+                            let submit_random_call = build_submit_random_call(seed, args.clone());
+                            let asssert_consumed_call = build_assert_consumed_call(seed, args.clone());
 
                             let account = args.get_account();
 
-                            let submit_random_result =
-                                account.execute_v1(vec![submit_random_call]).send().await;
+                            let submit_random_result = account
+                                .execute_v1(vec![starknet::core::types::Call {
+                                    to: submit_random_call.to,
+                                    selector: submit_random_call.selector,
+                                    calldata: submit_random_call.calldata,
+                                }])
+                                .send()
+                                .await;
 
                             warn!("submit_random: {:?}", submit_random_result);
-                            sleep(Duration::from_millis(100)).await;
+                            sleep(Duration::from_millis(50)).await;
+
+                            req = Request::from_parts(parts, Body::from(bytes));
+                            *req.uri_mut() = Uri::try_from(uri).unwrap();
+                            let client_execution = state
+                                .client
+                                .request(req)
+                                .await
+                                .map_err(|_| StatusCode::BAD_REQUEST)?
+                                ;
+
+                            let assert_consumed_result = account
+                                .execute_v1(vec![starknet::core::types::Call {
+                                    to: asssert_consumed_call.to,
+                                    selector: asssert_consumed_call.selector,
+                                    calldata: asssert_consumed_call.calldata,
+                                }])
+                                .send()
+                                .await;
+                            warn!("assert_consumed_result: {:?}", assert_consumed_result);
+
+                            return Ok(client_execution.into_response());
                         }
                     }
                 }
@@ -171,16 +189,10 @@ pub async fn proxy_handler(
         .into_response())
 }
 
-pub fn build_submit_random_call_from_request_random(
-    request_random_call: &Call,
-    args: Args,
-) -> starknet::core::types::Call {
-    let seed = request_random_call.calldata[request_random_call.calldata.len() - 1];
-    // info!("seed: {}", seed);
-
+pub fn build_submit_random_call(seed: Felt, args: Args) -> Call {
     let proof = get_proof(seed);
 
-    let submit_random_call = starknet::core::types::Call {
+    Call {
         to: args.vrf_provider_address,
         selector: selector!("submit_random"),
         calldata: vec![
@@ -191,87 +203,17 @@ pub fn build_submit_random_call_from_request_random(
             Felt::from_hex(&proof.s).unwrap(),
             Felt::from_hex(&proof.sqrt_ratio).unwrap(),
         ],
-    };
-    submit_random_call
-}
-
-pub async fn build_submit_random_call_from_simulation(
-    simulation: SimulatedTransaction,
-    args: Args,
-) -> Option<starknet::core::types::Call> {
-    match simulation.transaction_trace {
-        starknet::core::types::TransactionTrace::Invoke(invoke_transaction_trace) => {
-            match invoke_transaction_trace.execute_invocation {
-                starknet::core::types::ExecuteInvocation::Success(function_invocation) => {
-                    if let Some(event) = function_invocation
-                        .calls
-                        .first()
-                        .unwrap()
-                        .events
-                        .iter()
-                        .find(|e| e.keys[0] == selector!("RequestRandom"))
-                    {
-                        // info!("event: {:?}", event);
-                        let seed = event.data[event.data.len() - 1];
-                        // info!("seed: {}", seed);
-
-                        let proof = get_proof(seed);
-
-                        let submit_random_call = starknet::core::types::Call {
-                            to: args.vrf_provider_address,
-                            selector: selector!("submit_random"),
-                            calldata: vec![
-                                seed,
-                                Felt::from_hex(&proof.gamma_x).unwrap(),
-                                Felt::from_hex(&proof.gamma_y).unwrap(),
-                                Felt::from_hex(&proof.c).unwrap(),
-                                Felt::from_hex(&proof.s).unwrap(),
-                                Felt::from_hex(&proof.sqrt_ratio).unwrap(),
-                            ],
-                        };
-
-                        Option::Some(submit_random_call)
-                    } else {
-                        Option::None
-                    }
-                }
-                starknet::core::types::ExecuteInvocation::Reverted(_) => Option::None,
-            }
-        }
-        _ => Option::None,
     }
 }
 
-pub async fn simulate_request_random(
-    request_random_calls: &Vec<Call>,
-    invoke: &InvokeTx,
-    args: Args,
-) -> SimulatedTransaction {
-    let provider = args.get_provider();
-
-    // create new tx & calldata with only request_random
-    let mut calldata = vec![
-        felt!("0x1"),
-        request_random_calls[0].to,
-        request_random_calls[0].selector,
-        request_random_calls[0].calldata.len().into(),
-    ];
-    calldata.append(request_random_calls[0].calldata.clone().as_mut());
-    let tx = invoke_tx_to_broadcasted_invoke_tx(invoke, &calldata);
-
-    // println!("{:?}", tx);
-
-    let simulation = provider
-        .simulate_transaction(
-            BlockId::Tag(BlockTag::Pending),
-            BroadcastedTransaction::Invoke(tx),
-            vec![SimulationFlag::SkipValidate],
-        )
-        .await
-        .unwrap();
-
-    simulation
+pub fn build_assert_consumed_call(seed: Felt, args: Args) -> Call {
+    Call {
+        to: args.vrf_provider_address,
+        selector: selector!("assert_consumed"),
+        calldata: vec![seed],
+    }
 }
+
 pub fn get_calls(invoke: &InvokeTx) -> Vec<Call> {
     let calldata = match invoke {
         InvokeTx::V1(invoke_tx_v1) => invoke_tx_v1.calldata.clone(),
@@ -356,40 +298,5 @@ pub fn broadcasted_tx_with_new_calldata(
         _ => {
             unreachable!()
         }
-    }
-}
-
-pub fn invoke_tx_to_broadcasted_invoke_tx(
-    invoke: &InvokeTx,
-    request_random_calldata: &[Felt],
-) -> BroadcastedInvokeTransaction {
-    match invoke {
-        InvokeTx::V1(invoke_tx_v1) => BroadcastedInvokeTransaction::V1(
-            starknet::core::types::BroadcastedInvokeTransactionV1 {
-                sender_address: invoke_tx_v1.sender_address.into(),
-                calldata: request_random_calldata.to_vec(),
-                max_fee: invoke_tx_v1.max_fee.into(),
-                // signature: invoke_tx_v1.signature.clone(),
-                signature: vec![],
-                nonce: invoke_tx_v1.nonce,
-                is_query: false, // ?
-            },
-        ),
-        InvokeTx::V3(invoke_tx_v3) => BroadcastedInvokeTransaction::V3(
-            starknet::core::types::BroadcastedInvokeTransactionV3 {
-                sender_address: invoke_tx_v3.sender_address.into(),
-                calldata: request_random_calldata.to_vec(),
-                // signature: invoke_tx_v3.signature.clone(),
-                signature: vec![],
-                nonce: invoke_tx_v3.nonce,
-                resource_bounds: invoke_tx_v3.resource_bounds.clone(),
-                tip: invoke_tx_v3.tip,
-                paymaster_data: invoke_tx_v3.paymaster_data.clone(),
-                account_deployment_data: invoke_tx_v3.account_deployment_data.clone(),
-                nonce_data_availability_mode: invoke_tx_v3.nonce_data_availability_mode,
-                fee_data_availability_mode: invoke_tx_v3.fee_data_availability_mode,
-                is_query: false, // ?
-            },
-        ),
     }
 }
