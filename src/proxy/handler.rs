@@ -87,44 +87,39 @@ pub async fn proxy_handler(
                                 get_request_random_calls(invoke, args.vrf_provider_address);
 
                             if !request_random_calls.is_empty() {
-                                let simulation = simulate_request_random(
-                                    &request_random_calls,
-                                    invoke,
-                                    args.clone(),
-                                )
-                                .await;
-
-                                if let Some(submit_random_call) =
-                                    build_submit_random_call(simulation, args.clone()).await
-                                {
-                                    let mut calls = get_calls(invoke);
-                                    calls.insert(
-                                        0,
-                                        Call {
-                                            to: submit_random_call.to,
-                                            selector: submit_random_call.selector,
-                                            calldata: submit_random_call.calldata,
-                                        },
+                                let submit_random_call =
+                                    build_submit_random_call_from_request_random(
+                                        &request_random_calls[0],
+                                        args.clone(),
                                     );
 
-                                    let calldata: Vec<Felt> =
-                                        Vec::<proxy::types::Call>::cairo_serialize(&calls);
+                                let mut calls = get_calls(invoke);
+                                calls.insert(
+                                    0,
+                                    Call {
+                                        to: submit_random_call.to,
+                                        selector: submit_random_call.selector,
+                                        calldata: submit_random_call.calldata,
+                                    },
+                                );
 
-                                    let request = payload.params.request[0].clone();
-                                    let new_request =
-                                        broadcasted_tx_with_new_calldata(&request, &calldata);
-                                    payload.params.request[0] = new_request;
+                                let calldata: Vec<Felt> =
+                                    Vec::<proxy::types::Call>::cairo_serialize(&calls);
 
-                                    let json = serde_json::to_string_pretty(&payload).unwrap();
-                                    bytes = Bytes::from(json);
+                                let request = payload.params.request[0].clone();
+                                let new_request =
+                                    broadcasted_tx_with_new_calldata(&request, &calldata);
+                                payload.params.request[0] = new_request;
 
-                                    parts.headers.remove("content-length");
-                                    parts.headers.append(
-                                        "content-length",
-                                        HeaderValue::from_str(&bytes.len().to_string()).unwrap(),
-                                    );
-                                    warn!("estimateFee with submit_random")
-                                }
+                                let json = serde_json::to_string_pretty(&payload).unwrap();
+                                bytes = Bytes::from(json);
+
+                                parts.headers.remove("content-length");
+                                parts.headers.append(
+                                    "content-length",
+                                    HeaderValue::from_str(&bytes.len().to_string()).unwrap(),
+                                );
+                                warn!("estimateFee with submit_random")
                             }
                         }
                     }
@@ -144,24 +139,18 @@ pub async fn proxy_handler(
                             get_request_random_calls(invoke, args.vrf_provider_address);
 
                         if !request_random_calls.is_empty() {
-                            let simulation = simulate_request_random(
-                                &request_random_calls,
-                                invoke,
+                            let submit_random_call = build_submit_random_call_from_request_random(
+                                &request_random_calls[0],
                                 args.clone(),
-                            )
-                            .await;
+                            );
 
-                            if let Some(submit_random_call) =
-                                build_submit_random_call(simulation, args.clone()).await
-                            {
-                                let account = args.get_account();
+                            let account = args.get_account();
 
-                                let submit_random_result =
-                                    account.execute_v1(vec![submit_random_call]).send().await;
+                            let submit_random_result =
+                                account.execute_v1(vec![submit_random_call]).send().await;
 
-                                warn!("submit_random: {:?}", submit_random_result);
-                                sleep(Duration::from_millis(100)).await;
-                            }
+                            warn!("submit_random: {:?}", submit_random_result);
+                            sleep(Duration::from_millis(100)).await;
                         }
                     }
                 }
@@ -182,7 +171,31 @@ pub async fn proxy_handler(
         .into_response())
 }
 
-pub async fn build_submit_random_call(
+pub fn build_submit_random_call_from_request_random(
+    request_random_call: &Call,
+    args: Args,
+) -> starknet::core::types::Call {
+    let seed = request_random_call.calldata[request_random_call.calldata.len() - 1];
+    // info!("seed: {}", seed);
+
+    let proof = get_proof(seed);
+
+    let submit_random_call = starknet::core::types::Call {
+        to: args.vrf_provider_address,
+        selector: selector!("submit_random"),
+        calldata: vec![
+            seed,
+            Felt::from_hex(&proof.gamma_x).unwrap(),
+            Felt::from_hex(&proof.gamma_y).unwrap(),
+            Felt::from_hex(&proof.c).unwrap(),
+            Felt::from_hex(&proof.s).unwrap(),
+            Felt::from_hex(&proof.sqrt_ratio).unwrap(),
+        ],
+    };
+    submit_random_call
+}
+
+pub async fn build_submit_random_call_from_simulation(
     simulation: SimulatedTransaction,
     args: Args,
 ) -> Option<starknet::core::types::Call> {
