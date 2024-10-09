@@ -14,8 +14,8 @@ use vrf_contracts::vrf_provider::vrf_provider_component::{
 };
 
 use vrf_contracts::vrf_consumer::vrf_consumer_example::{
-    VrfConsumer, IVrfConsumerExample, IVrfConsumerExampleDispatcher,
-    IVrfConsumerExampleDispatcherTrait, Action, ActionParams
+    VrfConsumer, IVrfConsumerExampleFull, IVrfConsumerExampleFullDispatcher,
+    IVrfConsumerExampleFullDispatcherTrait, Action, ActionParams
 };
 
 use vrf_contracts::utils::{Calldata};
@@ -35,7 +35,8 @@ fn test_action() {
         ActionParams { param0: true, param1: 16, param2: 100000000000000000, },
         array![5, 6, 7]
     );
-    let (key, seed) = setup.provider.request_random(consumer, entrypoint, calldata,);
+    let next_seed = setup.consumer.get_seed_for_call(entrypoint, calldata.clone(), CALLER());
+    let (key, seed) = setup.provider.request_random(consumer, entrypoint, calldata, next_seed);
 
     // println!("key: {}", key);
     // println!("seed: {}", seed);
@@ -75,7 +76,8 @@ fn test_action_changed_calldata() {
         ActionParams { param0: true, param1: 16, param2: 100000000000000000, },
         array![5, 6, 7]
     );
-    let (_key, seed) = setup.provider.request_random(consumer, entrypoint, calldata,);
+    let next_seed = setup.consumer.get_seed_for_call(entrypoint, calldata.clone(), CALLER());
+    let (_key, seed) = setup.provider.request_random(consumer, entrypoint, calldata, next_seed);
 
     // println!("key: {}", key);
     // println!("seed: {}", seed);
@@ -97,6 +99,4 @@ fn test_action_changed_calldata() {
 
     stop_cheat_caller_address(setup.consumer.contract_address);
 }
-
-
 

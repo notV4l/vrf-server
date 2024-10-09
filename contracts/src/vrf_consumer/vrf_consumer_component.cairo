@@ -6,6 +6,12 @@ use vrf_contracts::vrf_provider::vrf_provider_component::PublicKey;
 trait IVrfConsumer<TContractState> {
     fn get_vrf_provider(self: @TContractState) -> ContractAddress;
     fn get_vrf_provider_public_key(self: @TContractState) -> PublicKey;
+    fn get_seed_for_call(
+        self: @TContractState,
+        entrypoint: felt252,
+        calldata: Array<felt252>,
+        caller: ContractAddress,
+    ) -> felt252;
 }
 
 #[starknet::component]
@@ -75,15 +81,32 @@ pub mod VrfConsumerComponent {
 
     #[embeddable_as(VrfConsumerImpl)]
     impl VrfConsumer<
-        TContractState, +Drop<TContractState>, +HasComponent<TContractState>,
+        TContractState,
+        +Drop<TContractState>,
+        +HasComponent<TContractState>,
+        +IVrfConsumerCallbackHelpers<TContractState>
     > of super::IVrfConsumer<ComponentState<TContractState>> {
         fn get_vrf_provider(self: @ComponentState<TContractState>) -> ContractAddress {
             self.VrfConsumer_vrf_provider.read()
         }
 
         fn get_vrf_provider_public_key(self: @ComponentState<TContractState>) -> PublicKey {
-            IVrfProviderDispatcher { contract_address: self.VrfConsumer_vrf_provider.read() }
-                .get_public_key()
+            self.vrf_provider_disp().get_public_key()
+        }
+
+        fn get_seed_for_call(
+            self: @ComponentState<TContractState>,
+            entrypoint: felt252,
+            calldata: Array<felt252>,
+            caller: ContractAddress,
+        ) -> felt252 {
+            let consumer = get_contract_address();
+
+            let contract = HasComponent::get_contract(self);
+            let key = contract.get_key_for_call(entrypoint, calldata, caller);
+            let nonce = self.get_nonce(key) + 1;
+
+            get_seed_from_key(consumer, key, nonce)
         }
     }
 

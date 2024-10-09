@@ -14,8 +14,8 @@ use vrf_contracts::vrf_provider::vrf_provider_component::{
 };
 
 use vrf_contracts::vrf_consumer::vrf_consumer_example::{
-    VrfConsumer, IVrfConsumerExample, IVrfConsumerExampleDispatcher,
-    IVrfConsumerExampleDispatcherTrait
+    VrfConsumer, IVrfConsumerExampleFull, IVrfConsumerExampleFullDispatcher,
+    IVrfConsumerExampleFullDispatcherTrait
 };
 
 pub fn PROVIDER() -> ContractAddress {
@@ -34,7 +34,7 @@ pub fn CONSUMER2() -> ContractAddress {
 #[derive(Drop, Copy, Clone)]
 pub struct SetupResult {
     provider: IVrfProviderDispatcher,
-    consumer: IVrfConsumerExampleDispatcher,
+    consumer: IVrfConsumerExampleFullDispatcher,
     // consumer2: IVrfConsumerExampleDispatcher,
 }
 
@@ -63,7 +63,7 @@ pub fn setup() -> SetupResult {
 
     SetupResult {
         provider: IVrfProviderDispatcher { contract_address: PROVIDER() },
-        consumer: IVrfConsumerExampleDispatcher { contract_address: CONSUMER() },
+        consumer: IVrfConsumerExampleFullDispatcher { contract_address: CONSUMER() },
         // consumer2: IVrfConsumerExampleDispatcher { contract_address: CONSUMER2() },
     }
 }

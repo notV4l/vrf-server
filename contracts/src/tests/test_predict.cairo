@@ -14,8 +14,8 @@ use vrf_contracts::vrf_provider::vrf_provider_component::{
 };
 
 use vrf_contracts::vrf_consumer::vrf_consumer_example::{
-    VrfConsumer, IVrfConsumerExample, IVrfConsumerExampleDispatcher,
-    IVrfConsumerExampleDispatcherTrait
+    VrfConsumer, IVrfConsumerExampleFull, IVrfConsumerExampleFullDispatcher,
+    IVrfConsumerExampleFullDispatcherTrait
 };
 
 use super::common::{setup, SetupResult, CONSUMER, proof_predict_7, submit_random_no_proof};
@@ -30,7 +30,8 @@ fn test_predict() {
     let consumer = setup.consumer.contract_address;
     let entrypoint = 'predict';
     let calldata = array![7];
-    let (key, seed) = setup.provider.request_random(consumer, entrypoint, calldata,);
+    let next_seed = setup.consumer.get_seed_for_call(entrypoint, calldata.clone(), CALLER());
+    let (key, seed) = setup.provider.request_random(consumer, entrypoint, calldata,next_seed);
 
     // println!("key: {}", key);
     // println!("seed: {}", seed);
@@ -70,7 +71,8 @@ fn test_predict_changed_calldata() {
     let consumer = setup.consumer.contract_address;
     let entrypoint = 'predict';
     let calldata = array![7];
-    let (_key, seed) = setup.provider.request_random(consumer, entrypoint, calldata,);
+    let next_seed = setup.consumer.get_seed_for_call(entrypoint, calldata.clone(), CALLER());
+    let (_key, seed) = setup.provider.request_random(consumer, entrypoint, calldata, next_seed);
 
     stop_cheat_caller_address(setup.provider.contract_address);
 
@@ -80,7 +82,7 @@ fn test_predict_changed_calldata() {
     // CALLER consumer randomness
     start_cheat_caller_address(setup.consumer.contract_address, CALLER());
     // change guess from 7 -> 1
-    setup.consumer.predict(  1 );
+    setup.consumer.predict(1);
 }
 // #[test]
 // #[should_panic(expected: 'VrfConsumer: commit mismatch')]

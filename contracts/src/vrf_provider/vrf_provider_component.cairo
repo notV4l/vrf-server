@@ -8,6 +8,7 @@ trait IVrfProvider<TContractState> {
         consumer: ContractAddress,
         entrypoint: felt252,
         calldata: Array<felt252>,
+        seed: felt252
     ) -> (felt252, felt252);
     fn submit_random(ref self: TContractState, seed: felt252, proof: Proof);
     fn submit_random_no_proof(ref self: TContractState, seed: felt252, random: felt252);
@@ -55,13 +56,6 @@ trait IVrfConsumerCallbackHelpers<TContractState> {
         key: felt252,
     );
 
-    // helper to check if a request_random call should included in a multicall
-    fn should_request_random(
-        self: @TContractState,
-        entrypoint: felt252,
-        calldata: Array<felt252>,
-        caller: ContractAddress,
-    ) -> bool;
 }
 
 //
@@ -157,6 +151,7 @@ pub mod VrfProviderComponent {
         pub const ALREADY_FULFILLED: felt252 = 'VrfProvider: already fulfilled';
         pub const NOT_FULFILLED: felt252 = 'VrfConsumer: not fulfilled';
         pub const INVALID_PROOF: felt252 = 'VrfConsumer: invalid proof';
+        pub const SEED_MISMATCH: felt252 = 'VrfConsumer: seed mismatch';
     }
 
     #[embeddable_as(VrfProviderImpl)]
@@ -172,6 +167,7 @@ pub mod VrfProviderComponent {
             consumer: ContractAddress,
             entrypoint: felt252,
             calldata: Array<felt252>,
+            seed: felt252
         ) -> (felt252, felt252) {
             let caller = get_caller_address();
 
@@ -179,7 +175,8 @@ pub mod VrfProviderComponent {
                 .on_request_random(entrypoint, calldata.clone(), caller);
 
             let nonce = self._increase_nonce(consumer, key);
-            let seed = get_seed_from_key(consumer, key, nonce);
+            let calculated_seed = get_seed_from_key(consumer, key, nonce);
+            assert(seed == calculated_seed,Errors::SEED_MISMATCH );
 
             self._commit(consumer, key, seed);
 

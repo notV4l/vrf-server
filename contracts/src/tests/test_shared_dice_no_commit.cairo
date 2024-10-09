@@ -14,8 +14,8 @@ use vrf_contracts::vrf_provider::vrf_provider_component::{
 };
 
 use vrf_contracts::vrf_consumer::vrf_consumer_example::{
-    VrfConsumer, IVrfConsumerExample, IVrfConsumerExampleDispatcher,
-    IVrfConsumerExampleDispatcherTrait
+    VrfConsumer, IVrfConsumerExampleFull, IVrfConsumerExampleFullDispatcher,
+    IVrfConsumerExampleFullDispatcherTrait
 };
 
 use super::common::{setup, SetupResult, CONSUMER, submit_random_no_proof, proof_predict_7};
@@ -30,7 +30,8 @@ fn test_shared_dice_no_commit__multiple_throw() {
 
     // CALLER request_random
     start_cheat_caller_address(setup.provider.contract_address, CALLER());
-    let (_key, seed) = setup.provider.request_random(consumer, entrypoint, calldata.clone(),);
+    let next_seed = setup.consumer.get_seed_for_call(entrypoint, calldata.clone(), CALLER());
+    let (_key, seed) = setup.provider.request_random(consumer, entrypoint, calldata.clone(),next_seed);
     stop_cheat_caller_address(setup.provider.contract_address);
 
     // provider give random
@@ -38,7 +39,8 @@ fn test_shared_dice_no_commit__multiple_throw() {
 
     // CALLER request_random
     start_cheat_caller_address(setup.provider.contract_address, CALLER());
-    let (_key, seed) = setup.provider.request_random(consumer, entrypoint, calldata.clone(),);
+    let next_seed = setup.consumer.get_seed_for_call(entrypoint, calldata.clone(), CALLER());
+    let (_key, seed) = setup.provider.request_random(consumer, entrypoint, calldata.clone(),next_seed);
     stop_cheat_caller_address(setup.provider.contract_address);
 
     // provider give random
@@ -46,7 +48,8 @@ fn test_shared_dice_no_commit__multiple_throw() {
 
     // OTHER request_random
     start_cheat_caller_address(setup.provider.contract_address, OTHER());
-    let (key, seed) = setup.provider.request_random(consumer, entrypoint, calldata.clone(),);
+    let next_seed = setup.consumer.get_seed_for_call(entrypoint, calldata.clone(), CALLER());
+    let (key, seed) = setup.provider.request_random(consumer, entrypoint, calldata.clone(),next_seed);
     stop_cheat_caller_address(setup.provider.contract_address);
 
     // provider give random

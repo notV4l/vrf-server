@@ -16,6 +16,39 @@ pub struct ActionParams {
 }
 
 #[starknet::interface]
+trait IVrfConsumerExampleFull<TContractState> {
+    // throw dice as much as you want and consume when you want
+    fn dice_no_commit(ref self: TContractState);
+
+    // throw dice then must consume to throw again
+    fn dice_with_commit(ref self: TContractState);
+
+    // any caller can throw dice as much as he want and any caller can consume
+    fn shared_dice_no_commit(ref self: TContractState);
+
+    // any caller can throw dice then any caller must consume to throw again
+    fn shared_dice_with_commit(ref self: TContractState);
+
+    // commit on a number prediction
+    fn predict(ref self: TContractState, value: u32);
+
+    // commit on an action with multiple params
+    fn action(
+        ref self: TContractState, action: Action, params: ActionParams, extra: Array<felt252>
+    );
+
+    fn get_seed_for_call(
+        self: @TContractState,
+        entrypoint: felt252,
+        calldata: Array<felt252>,
+        caller: starknet::ContractAddress,
+    ) -> felt252;
+    
+    // admin
+    fn set_vrf_provider(ref self: TContractState, new_vrf_provider: starknet::ContractAddress);
+}
+
+#[starknet::interface]
 trait IVrfConsumerExample<TContractState> {
     // throw dice as much as you want and consume when you want
     fn dice_no_commit(ref self: TContractState);
@@ -230,39 +263,6 @@ mod VrfConsumer {
             if entrypoint == Entrypoints::action {
                 return self.vrf_consumer.assert_not_committed(key);
             };
-        }
-
-
-        fn should_request_random(
-            self: @ContractState,
-            entrypoint: felt252,
-            calldata: Array<felt252>,
-            caller: ContractAddress,
-        ) -> bool {
-            if entrypoint == Entrypoints::dice_no_commit {
-                return true;
-            };
-            if entrypoint == Entrypoints::dice_with_commit {
-                let key = self.get_key_for_call(entrypoint, array![], caller);
-                return !self.vrf_consumer.is_committed(key);
-            };
-            if entrypoint == Entrypoints::shared_dice_no_commit {
-                return true;
-            };
-            if entrypoint == Entrypoints::shared_dice_with_commit {
-                let key = self.get_key_for_call(entrypoint, array![], caller);
-                return !self.vrf_consumer.is_committed(key);
-            };
-            if entrypoint == Entrypoints::predict {
-                let key = self.get_key_for_call(entrypoint, calldata, caller);
-                return !self.vrf_consumer.is_committed(key);
-            };
-            if entrypoint == Entrypoints::action {
-                let key = self.get_key_for_call(entrypoint, calldata, caller);
-                return !self.vrf_consumer.is_committed(key);
-            };
-
-            false
         }
     }
 
